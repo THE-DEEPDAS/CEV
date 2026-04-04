@@ -26,6 +26,7 @@ import json
 from tqdm import tqdm
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 import warnings
+from contextlib import nullcontext
 
 warnings.filterwarnings('ignore')
 plt.switch_backend('Agg')
@@ -65,7 +66,10 @@ CLASS_WEIGHTS = torch.tensor([
 ], dtype=torch.float32)
 
 # Hyperparameters
-BATCH_SIZE = 4
+# NOTE: On Windows + display-attached GPUs, large kernels can hit TDR timeout.
+# Use micro-batches with gradient accumulation to preserve effective batch size.
+BATCH_SIZE = 1
+GRAD_ACCUM_STEPS = 2  # Effective batch size = BATCH_SIZE * GRAD_ACCUM_STEPS = 2
 IMG_SIZE = 512
 PHASE1_EPOCHS = 10
 PHASE2_EPOCHS = 40
@@ -78,6 +82,7 @@ DICE_WEIGHT = 0.3
 print(f"NUM_CLASSES: {NUM_CLASSES}")
 print(f"CLASS_MAPPING: {CLASS_MAPPING}")
 print(f"CLASS_WEIGHTS: {CLASS_WEIGHTS}")
+print(f"BATCH_SIZE: {BATCH_SIZE}, GRAD_ACCUM_STEPS: {GRAD_ACCUM_STEPS}, EFFECTIVE_BATCH_SIZE: {BATCH_SIZE * GRAD_ACCUM_STEPS}")
 
 # ============================================================================
 # Utility Functions
@@ -127,27 +132,36 @@ class CutMix:
             if len(rare_coords[0]) == 0:
                 continue
             
-            # Random source patch containing rare class
-            src_y = np.random.choice(rare_coords[0])
-            src_x = np.random.choice(rare_coords[1])
-            
-            # Random target location
-            tgt_y = np.random.randint(0, max(1, h - self.patch_size))
-            tgt_x = np.random.randint(0, max(1, w - self.patch_size))
-            
-            # Extract patches
-            patch_h = min(self.patch_size, h - tgt_y)
-            patch_w = min(self.patch_size, w - tgt_x)
-            
-            src_y_end = min(src_y + patch_h, h)
-            src_x_end = min(src_x + patch_w, w)
-            
-            # Paste patch
-            if len(image.shape) == 3:  # PIL Image converted to array
-                image[tgt_y:tgt_y+patch_h, tgt_x:tgt_x+patch_w] = \
-                    image[src_y:src_y_end, src_x:src_x_end]
-            mask[tgt_y:tgt_y+patch_h, tgt_x:tgt_x+patch_w] = \
-                mask[src_y:src_y_end, src_x:src_x_end]
+            # Choose a source center pixel belonging to the rare class
+            src_center_y = int(np.random.choice(rare_coords[0]))
+            src_center_x = int(np.random.choice(rare_coords[1]))
+
+            # Build a source patch around the center, clamped to image bounds
+            src_y0 = max(0, src_center_y - self.patch_size // 2)
+            src_x0 = max(0, src_center_x - self.patch_size // 2)
+            src_y1 = min(h, src_y0 + self.patch_size)
+            src_x1 = min(w, src_x0 + self.patch_size)
+            src_y0 = max(0, src_y1 - self.patch_size)
+            src_x0 = max(0, src_x1 - self.patch_size)
+
+            patch_h = src_y1 - src_y0
+            patch_w = src_x1 - src_x0
+            if patch_h <= 0 or patch_w <= 0:
+                continue
+
+            # Random target location that can fit the exact source patch size
+            tgt_y0 = np.random.randint(0, max(1, h - patch_h + 1))
+            tgt_x0 = np.random.randint(0, max(1, w - patch_w + 1))
+            tgt_y1 = tgt_y0 + patch_h
+            tgt_x1 = tgt_x0 + patch_w
+
+            # Copy source patch and paste to target (shapes always match)
+            if len(image.shape) == 3:
+                src_img_patch = image[src_y0:src_y1, src_x0:src_x1].copy()
+                image[tgt_y0:tgt_y1, tgt_x0:tgt_x1] = src_img_patch
+
+            src_mask_patch = mask[src_y0:src_y1, src_x0:src_x1].copy()
+            mask[tgt_y0:tgt_y1, tgt_x0:tgt_x1] = src_mask_patch
         
         return image, mask
 
@@ -272,7 +286,10 @@ class WeightedCombinedLoss(nn.Module):
         super().__init__()
         self.ce_weight = ce_weight
         self.dice_weight = dice_weight
-        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)
+        if ignore_index is None:
+            self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
+        else:
+            self.ce_loss = nn.CrossEntropyLoss(weight=class_weights, ignore_index=int(ignore_index))
         self.dice_loss = DiceLoss(ignore_index=ignore_index)
     
     def forward(self, logits, targets):
@@ -343,14 +360,20 @@ def create_optimizer_with_layer_wise_lr(model, base_lr, weight_decay):
     """
     backbone_params = []
     head_params = []
-    
+
     for name, param in model.named_parameters():
-        if 'encoder' in name:  # SegFormer encoder is backbone
-            backbone_params.append({'params': param, 'lr': base_lr})
-        else:  # Decoder head
-            head_params.append({'params': param, 'lr': base_lr * 10})
-    
-    param_groups = backbone_params + head_params
+        if not param.requires_grad:
+            continue
+        # Hugging Face SegFormer backbone params live under `segformer.encoder`
+        if name.startswith("segformer.encoder"):
+            backbone_params.append(param)
+        else:
+            head_params.append(param)
+
+    param_groups = [
+        {'params': backbone_params, 'lr': base_lr},
+        {'params': head_params, 'lr': base_lr * 10},
+    ]
     optimizer = optim.AdamW(param_groups, weight_decay=weight_decay)
     
     return optimizer
@@ -367,31 +390,51 @@ def train_epoch(model, train_loader, optimizer, loss_fn, device, phase_name="Tra
     total_iou = 0.0
     total_acc = 0.0
     num_batches = 0
+    use_amp = device.type == 'cuda'
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
     
     pbar = tqdm(train_loader, desc=f"{phase_name}", leave=False)
+    optimizer.zero_grad()
     for batch_idx, (images, masks) in enumerate(pbar):
-        images, masks = images.to(device), masks.to(device)
+        images = images.to(device, non_blocking=True)
+        masks = masks.to(device, non_blocking=True)
         
         # Forward pass
-        outputs = model(pixel_values=images)
-        logits = outputs.logits
+        autocast_ctx = torch.amp.autocast('cuda', enabled=use_amp) if use_amp else nullcontext()
+        with autocast_ctx:
+            outputs = model(pixel_values=images)
+            logits = outputs.logits
         
-        # Upsample to original size
-        logits = F.interpolate(logits, size=masks.shape[1:], mode='bilinear', align_corners=False)
+            # Upsample to original size
+            logits = F.interpolate(logits, size=masks.shape[1:], mode='bilinear', align_corners=False)
         
-        # Compute loss
-        loss = loss_fn(logits, masks)
+            # Compute loss
+            loss = loss_fn(logits, masks)
+            loss_for_step = loss / GRAD_ACCUM_STEPS
         
         # Backward pass
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
+        scaler.scale(loss_for_step).backward()
+
+        # Use non-foreach gradient clipping to avoid some CUDA timeout issues on Windows.
+        if ((batch_idx + 1) % GRAD_ACCUM_STEPS == 0) or ((batch_idx + 1) == len(train_loader)):
+            try:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, foreach=False)
+            except RuntimeError as e:
+                if "launch timed out" in str(e).lower():
+                    torch.cuda.empty_cache()
+                    continue
+                raise
+
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
         
         # Metrics
-        total_loss += loss.item()
-        total_iou += compute_mean_iou(logits, masks, NUM_CLASSES)
-        total_acc += compute_pixel_accuracy(logits, masks)
+        total_loss += float(loss.detach().cpu().item())
+        with torch.no_grad():
+            total_iou += compute_mean_iou(logits, masks, NUM_CLASSES)
+            total_acc += compute_pixel_accuracy(logits, masks)
         num_batches += 1
         
         pbar.set_postfix({
@@ -492,12 +535,26 @@ def main():
     )
     
     # DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=(device.type == 'cuda')
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=(device.type == 'cuda')
+    )
     
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
     print(f"Batch size: {BATCH_SIZE}")
+    print(f"Gradient accumulation steps: {GRAD_ACCUM_STEPS}")
+    print(f"Effective batch size: {BATCH_SIZE * GRAD_ACCUM_STEPS}")
     print(f"Image size: {IMG_SIZE}x{IMG_SIZE}")
     
     # ========================================================================
@@ -550,12 +607,15 @@ def main():
     print(f"Epochs: {PHASE1_EPOCHS}")
     print(f"Learning Rate: {LR_PHASE1}")
     
-    # Freeze encoder
-    for param in model.encoder.parameters():
+    # Freeze SegFormer backbone encoder
+    for param in model.segformer.encoder.parameters():
         param.requires_grad = False
     
     # Create optimizer for head only
-    head_params = [p for n, p in model.named_parameters() if 'encoder' not in n and p.requires_grad]
+    head_params = [
+        p for n, p in model.named_parameters()
+        if not n.startswith("segformer.encoder") and p.requires_grad
+    ]
     optimizer_phase1 = optim.AdamW(head_params, lr=LR_PHASE1, weight_decay=WEIGHT_DECAY)
     scheduler_phase1 = polynomial_decay_scheduler(optimizer_phase1, PHASE1_EPOCHS, LR_PHASE1)
     
@@ -609,8 +669,8 @@ def main():
     print(f"Epochs: {PHASE2_EPOCHS}")
     print(f"Learning Rate: {LR_PHASE2} (backbone), {LR_PHASE2 * 10} (head)")
     
-    # Unfreeze encoder
-    for param in model.encoder.parameters():
+    # Unfreeze SegFormer backbone encoder
+    for param in model.segformer.encoder.parameters():
         param.requires_grad = True
     
     # Create optimizer with layer-wise LR
