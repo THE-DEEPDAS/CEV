@@ -1,0 +1,23 @@
+# Core dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+
+# Data processing
+numpy>=1.21.0
+Pillow>=9.0.0
+opencv-python>=4.5.0
+
+# Utilities
+matplotlib>=3.5.0
+tqdm>=4.62.0
+scikit-learn>=1.0.0
+
+# Optional but recommended
+tensorboard>=2.10.0  # For training visualization
+wandb>=0.13.0  # For experiment tracking
+
+# Development (optional)
+ipython>=8.0.0
+jupyter>=1.0.0
+black>=22.0.0  # Code formatting
