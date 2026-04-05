@@ -112,7 +112,7 @@ def check_dataset(data_dir, split_name):
         print(f"✓ Mask unique values: {sorted(unique_values.tolist())}")
         
         # Check if values match expected class mapping
-        expected_values = {0, 100, 200, 300, 500, 550, 700, 800, 7100, 10000}
+        expected_values = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 28, 39, 100, 200, 300, 500, 550, 600, 700, 800, 7100, 10000}
         if set(unique_values) <= expected_values:
             print(f"✓ Mask values match expected class mapping")
         else:
@@ -137,7 +137,7 @@ def check_datasets(script_dir):
     all_ok = True
     
     # Training dataset
-    train_dir = os.path.join(script_dir, 'Offroad_Segmentation_Training_Dataset', 'Offroad_Segmentation_Training_Dataset', 'train')
+    train_dir = os.path.join(script_dir, 'Offroad_Segmentation_Training_Dataset', 'train')
     if check_dataset(train_dir, 'train'):
         print()
     else:
@@ -145,14 +145,14 @@ def check_datasets(script_dir):
         all_ok = False
     
     # Validation dataset
-    val_dir = os.path.join(script_dir, 'Offroad_Segmentation_Training_Dataset', 'Offroad_Segmentation_Training_Dataset', 'val')
+    val_dir = os.path.join(script_dir, 'Offroad_Segmentation_Training_Dataset', 'val')
     if check_dataset(val_dir, 'validation'):
         print()
     else:
         print("⚠ Validation dataset check failed (may not exist yet)\n")
     
     # Test dataset
-    test_dir = os.path.join(script_dir, 'Offroad_Segmentation_testImages', 'Offroad_Segmentation_testImages')
+    test_dir = os.path.join(script_dir, 'Offroad_Segmentation_testImages')
     if check_dataset(test_dir, 'test'):
         print()
     else:
@@ -282,3 +282,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

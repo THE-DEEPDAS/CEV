@@ -1,3 +1,6 @@
 Offroad_Segmentation_Training_Dataset
 Offroad_Segmentation_testImages
 segformer
+train_stats_segformer/
+Offroad_Segmentation_testImages.zip
+.vscode

@@ -1,0 +1,17 @@
+EVALUATION RESULTS
+============================================================
+Mean IoU:            0.2758
+Mean Pixel Accuracy: 0.5462
+
+Per-Class IoU
+------------------------------------------------------------
+Trees                0.1999
+Lush Bushes          0.0008
+Dry Grass            0.4222
+Dry Bushes           0.0829
+Ground Clutter       0.0000
+Flowers              0.0000
+Logs                 N/A
+Rocks                0.0241
+Landscape            0.4984
+Sky                  0.9766
