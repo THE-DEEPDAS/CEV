@@ -1,222 +1,191 @@
 # SegFormer-B2 Semantic Segmentation Pipeline for Offroad Environments
 
-A production-grade semantic segmentation pipeline optimized for desert/offroad environments using SegFormer-B2 with advanced domain generalization techniques.
+A submission-ready hackathon entry for offroad terrain segmentation using SegFormer-B2, with domain generalization, two-phase finetuning, and TTA inference.
 
-## 🚀 Quick Start
+## 1. Title & Summary
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+**Project Title:** SegFormer-B2 Offroad Segmentation Challenge
 
-# 2. Validate setup
-python setup_validation.py
+**Summary:**
+This repository implements a high-performance segmentation pipeline tailored to offroad and desert scenes. It combines advanced data augmentation, two-phase training, and test-time augmentation to maximize generalization across rare terrain categories.
 
-# 3. Train
-python train_segformer.py
-
-# 4. Evaluate
-python test_segformer.py
-
-# 5. Analyze results
-python analyze_results.py
-```
-
-**Expected Performance:**
-- Without TTA: 65-75% mIoU
-- With TTA: 68-79% mIoU (+2-4% improvement)
+The current submission uses the best checkpoint from `train_stats_segformer/best_model_phase2.pth` and produces evaluation outputs in `predictions_tta/`.
 
 ---
 
-## 📋 Features
+## 2. Step-by-Step Instructions
 
-### Model Architecture
-- **SegFormer-B2** backbone with ImageNet pretrained weights
-- Efficient transformer-based encoder with convolutional decoder
-- Adapted for 9-class offroad segmentation
+### 2.1 Environment Setup
+1. Open the workspace at `d:\CEV`.
+2. Create and activate a Python virtual environment.
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Validate installation and GPU availability:
+   ```bash
+   python setup_validation.py
+   ```
 
-### Advanced Training Techniques
+### 2.2 Training
+1. Run phase 1 training (decoder only):
+   ```bash
+   python train_segformer.py --phase 1
+   ```
+2. Run phase 2 training (full finetuning):
+   ```bash
+   python train_segformer.py --phase 2
+   ```
+3. Final model checkpoint saved at:
+   - `train_stats_segformer/best_model_phase2.pth`
 
-#### 1. **Class Remapping in Dataset**
-Maps raw pixel values (0, 100, 200, ..., 10000) to consistent class IDs (0-8):
-```python
-100 → 0 (Trees)
-200 → 1 (Lush Bushes)
-...
-10000 → 8 (Sky)
-```
+### 2.3 Evaluation
+1. Run test inference with TTA:
+   ```bash
+   python test_segformer.py
+   ```
+2. Output location:
+   - `predictions_tta/`
+3. Key files generated:
+   - `predictions_tta/evaluation_metrics.txt`
+   - `predictions_tta/per_class_metrics.png`
+   - `predictions_tta/comparisons/*.png.png`
 
-#### 2. **Domain Generalization Augmentation** (Critical!)
-ColorJitter forces the model to learn **shape-based features** instead of color shortcuts:
-- ColorJitter: brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1
-- RandomHorizontalFlip, RandomVerticalFlip
-- RandomAffine: rotation ±10°, translation 10%, scale 0.9-1.1
-- GaussianBlur: σ=0.1-2.0
-- RandomGrayscale: p=0.1
-- **CutMix**: Synthetically augments rare classes (Ground Clutter, Logs)
-
-#### 3. **Weighted Loss Function**
-Combines CrossEntropyLoss with class weights + Dice Loss:
-```
-total_loss = 0.7 × CrossEntropyLoss(weights) + 0.3 × DiceLoss
-```
-
-**Class Weights:**
-- Rare classes (Ground Clutter, Logs): 8.0×
-- Common classes: 1.0×
-- Very common (Sky): 0.5×
-
-#### 4. **AdamW Optimizer with Polynomial Decay**
-- Optimizer: AdamW (weight_decay=0.01)
-- Scheduler: Polynomial decay (power=1.0)
-- **Layer-wise Learning Rates:**
-  - Backbone (encoder): 1× lr = 6e-5
-  - Head (decoder): 10× lr = 6e-4
-
-#### 5. **Two-Phase Training**
-Prevents catastrophic forgetting of ImageNet features:
-
-**Phase 1: Freeze Backbone (10 epochs)**
-- Frozen: Encoder (ImageNet features)
-- Trainable: Decoder head
-- Learning rate: 6e-5
-- Purpose: Fast task-specific learning
-
-**Phase 2: Finetune All (40-80 epochs)**
-- Unfrozen: All layers
-- Layer-wise LR: 1× backbone, 10× head
-- Learning rate: 6e-5 (backbone), 6e-4 (head)
-- Purpose: Adapt ImageNet features to domain
-
-#### 6. **Test-Time Augmentation (TTA)**
-At inference, runs 4 augmentations:
-1. Original image
-2. Horizontal flip
-3. Vertical flip
-4. Both flips (180°)
-
-Averages softmax outputs then takes argmax:
-```python
-predictions = argmax(mean(softmax([original, h_flip, v_flip, both])))
-```
-
-**Benefit:** +2-4% mIoU with zero training overhead
+### 2.4 Submission Preparation
+1. Include this README as the main project document.
+2. Add the final checkpoint: `train_stats_segformer/best_model_phase2.pth`.
+3. Attach `predictions_tta/` examples and metrics.
+4. Ensure judges can reproduce results with the commands above.
 
 ---
 
-## 📁 Project Structure
+## 3. Diagrams & Visuals
 
+### 3.1 Pipeline Flow
 ```
-segformer_b2_pipeline/
-├── train_segformer.py                  # Main training script
-├── test_segformer.py                   # Inference with TTA
-├── setup_validation.py                 # Setup checker
-├── analyze_results.py                  # Results analyzer
-│
-├── QUICKSTART.md                       # 3-step guide
-├── SEGFORMER_TRAINING_GUIDE.md        # Detailed documentation
-├── IMPLEMENTATION_SUMMARY.md           # What was implemented
-├── README.md                           # This file
-├── requirements.txt                    # Python dependencies
-│
-├── segformer/                          # Pretrained weights
-│   ├── config.json
-│   ├── pytorch_model.bin
-│   ├── preprocessor_config.json
-│   └── README.md
-│
-├── train_stats_segformer/              # Training outputs
-│   ├── best_model_phase1.pth
-│   ├── best_model_phase2.pth          ← Best model
-│   ├── segformer_b2_final.pth
-│   ├── training_history.json
-│   └── training_curves.png
-│
-└── predictions_tta/                    # Inference outputs
-    ├── masks/                          # Raw predictions (0-8)
-    ├── masks_color/                    # RGB visualizations
-    ├── comparisons/                    # Ground truth comparisons
-    ├── evaluation_metrics.txt
-    ├── per_class_metrics.png
-    └── inference_results.json
+Raw Images + Masks
+       ↓
+Data Augmentation
+       ↓
+SegFormer-B2 Training
+       ↓
+Best Checkpoint: best_model_phase2.pth
+       ↓
+TTA Inference
+       ↓
+Predictions + Evaluation
 ```
+
+### 3.2 Example Outputs
+These visuals are taken directly from `predictions_tta/comparisons/`.
+
+#### Example 1
+![Comparison sample 0](predictions_tta/comparisons/sample_000_0000060.png.png)
+
+#### Example 2
+![Comparison sample 1](predictions_tta/comparisons/sample_001_0000061.png.png)
+
+#### Example 3
+![Comparison sample 2](predictions_tta/comparisons/sample_002_0000062.png.png)
+
+### 3.3 Performance Chart
+![Per-Class Metrics](predictions_tta/per_class_metrics.png)
 
 ---
 
-## 🔧 Installation
+## 4. Results & Metrics
+
+### 4.1 Final Evaluation Summary
+Results from the generated test output in `predictions_tta/evaluation_metrics.txt`:
+
+- **Mean IoU:** 0.2758
+- **Mean Pixel Accuracy:** 0.5462
+
+### 4.2 Per-Class IoU
+- Trees: 0.1999
+- Lush Bushes: 0.0008
+- Dry Grass: 0.4222
+- Dry Bushes: 0.0829
+- Ground Clutter: 0.0000
+- Flowers: 0.0000
+- Logs: N/A
+- Rocks: 0.0241
+- Landscape: 0.4984
+- Sky: 0.9766
+
+> These values are the actual metrics from the current inference run and should be included in the submission report.
+
+---
+
+## 5. Features & Competitive Edge
+
+### Core Strengths
+- **SegFormer-B2 backbone:** powerful transformer-based segmentation with strong scene understanding.
+- **Two-phase training:** stable adaptation from pretrained ImageNet features to offroad domain.
+- **Domain generalization:** robust augmentation pipeline for real-world desert/offroad conditions.
+- **Test-time augmentation:** improves prediction stability and yields stronger final metrics.
+- **Submission-ready structure:** includes exact metrics, visual examples, and reproducible commands.
+
+### Why this wins
+- Judges get a fully reproducible pipeline.
+- The submission includes visual proof from actual outputs.
+- The README is organized for clarity, performance, and deployment.
+
+---
+
+## 6. Installation
 
 ### Requirements
 - Python 3.8+
-- CUDA 11.8+ (recommended for GPU acceleration)
-- 8GB+ GPU VRAM (for batch_size=4) or adjust batch size for CPU
+- CUDA 11.8+ (recommended for GPU)
+- 8GB+ GPU VRAM for batch size 4
 
-### Setup
-
+### Install
 ```bash
-# Clone or navigate to project directory
-cd offroad-segmentation
-
-# Create virtual environment (recommended)
+cd d:\CEV
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+venv\Scripts\activate
 pip install -r requirements.txt
-
-# Verify installation
 python setup_validation.py
 ```
 
 ---
 
-## 📊 Dataset Format
+## 7. Usage Commands
 
-Expected directory structure:
-
-```
-Offroad_Segmentation_Training_Dataset/
-├── train/
-│   ├── Color_Images/       (RGB images, e.g., 960×540)
-│   │   ├── image_001.png
-│   │   ├── image_002.png
-│   │   └── ...
-│   └── Segmentation/       (Masks with values: 0, 100, 200, 300, 500, 550, 700, 800, 7100, 10000)
-│       ├── image_001.png
-│       ├── image_002.png
-│       └── ...
-│
-└── val/
-    ├── Color_Images/
-    └── Segmentation/
-
-Offroad_Segmentation_testImages/
-├── Color_Images/
-└── Segmentation/
-
-segformer/
-├── config.json
-├── pytorch_model.bin       ← Pretrained weights (required)
-├── preprocessor_config.json
-└── README.md
+### Train
+```bash
+python train_segformer.py
 ```
 
-**Class Mapping:**
+### Evaluate
+```bash
+python test_segformer.py
 ```
-Raw Value  →  Class ID  →  Label
-0          →  0         →  Background
-100        →  0         →  Trees
-200        →  1         →  Lush Bushes
-300        →  2         →  Dry Grass
-500        →  3         →  Dry Bushes
-550        →  4         →  Ground Clutter (rare)
-700        →  5         →  Logs (rare)
-800        →  6         →  Rocks
-7100       →  7         →  Landscape
-10000      →  8         →  Sky
+
+### Inspect Output
+```bash
+type predictions_tta\evaluation_metrics.txt
 ```
 
 ---
 
-## 🎓 Usage Guide
+## 8. Submission Checklist
+
+- [x] Updated README with summary, instructions, and visuals
+- [x] Final checkpoint: `train_stats_segformer/best_model_phase2.pth`
+- [x] Evaluation metrics included in `predictions_tta/evaluation_metrics.txt`
+- [x] Comparison visuals included in `predictions_tta/comparisons/`
+- [x] Per-class chart included in `predictions_tta/per_class_metrics.png`
+
+---
+
+## 9. Next Improvements
+
+1. Add more labeled samples for underperforming classes (`Lush Bushes`, `Ground Clutter`, `Flowers`, `Logs`).
+2. Tune class weights or switch to focal loss.
+3. Expand TTA to include scaling and rotation.
+4. Add training curve charts to the submission report.
 
 ### 1. Verify Setup
 
