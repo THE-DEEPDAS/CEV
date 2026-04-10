@@ -1,0 +1,23 @@
+EVALUATION RESULTS
+============================================================
+Mean IoU:            0.2965
+Mean Pixel Accuracy: 0.5638
+Mean Inference Time: 7.7ms per image
+P50 Inference Time:  5.1ms per image
+P90 Inference Time:  6.4ms per image
+P95 Inference Time:  7.8ms per image
+Peak GPU Memory:     2078.7MB
+TTA Enabled:         False
+
+Per-Class IoU
+------------------------------------------------------------
+Trees                0.2401
+Lush Bushes          0.0019
+Dry Grass            0.4399
+Dry Bushes           0.1499
+Ground Clutter       0.0000
+Flowers              0.0000
+Logs                 0.0000
+Rocks                0.0303
+Landscape            0.5284
+Sky                  0.9820

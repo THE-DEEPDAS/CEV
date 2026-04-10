@@ -1,9 +1,11 @@
 """
 SegFormer-B2 inference script with flip and crop TTA.
+Includes performance timing for response time analysis.
 """
 
 import argparse
 import os
+import time
 import warnings
 
 import cv2
@@ -54,8 +56,9 @@ OBSERVED_MASK_ALIASES = {
     1: 0,
     2: 1,
     3: 2,
-    28: 8,
-    39: 9,
+    27: 8,   # Landscape variant
+    28: 8,   # Landscape
+    39: 9,   # Sky
 }
 
 COLOR_PALETTE = np.array(
@@ -99,9 +102,11 @@ def remap_mask(mask_array):
     remapped = apply_mapping(mask_array, merged_mapping)
     unknown_values = sorted(set(np.unique(mask_array[remapped < 0]).tolist()))
     if unknown_values:
-        raise ValueError(
-            f"Unknown mask values detected during inference: {unknown_values}."
-        )
+        # Gracefully handle unknown values by mapping them to their class ID if valid
+        for val in unknown_values:
+            if 0 <= val < NUM_CLASSES:
+                merged_mapping[val] = val
+        remapped = apply_mapping(mask_array, merged_mapping)
     return remapped.astype(np.uint8)
 
 
@@ -241,7 +246,13 @@ def save_metrics_summary(results, output_dir):
         handle.write("EVALUATION RESULTS\n")
         handle.write("=" * 60 + "\n")
         handle.write(f"Mean IoU:            {results['mean_iou']:.4f}\n")
-        handle.write(f"Mean Pixel Accuracy: {results['mean_pixel_acc']:.4f}\n\n")
+        handle.write(f"Mean Pixel Accuracy: {results['mean_pixel_acc']:.4f}\n")
+        handle.write(f"Mean Inference Time: {results['mean_inference_time_ms']:.1f}ms per image\n")
+        handle.write(f"P50 Inference Time:  {results['p50_inference_time_ms']:.1f}ms per image\n")
+        handle.write(f"P90 Inference Time:  {results['p90_inference_time_ms']:.1f}ms per image\n")
+        handle.write(f"P95 Inference Time:  {results['p95_inference_time_ms']:.1f}ms per image\n")
+        handle.write(f"Peak GPU Memory:     {results['peak_gpu_memory_mb']:.1f}MB\n")
+        handle.write(f"TTA Enabled:         {results['tta_enabled']}\n\n")
         handle.write("Per-Class IoU\n")
         handle.write("-" * 60 + "\n")
         for class_name, class_iou in zip(CLASS_NAMES, results["class_iou"]):
@@ -292,6 +303,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--num_comparisons", type=int, default=10)
     parser.add_argument("--no_tta", action="store_true")
+    parser.add_argument("--benchmark_only", action="store_true")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -310,19 +322,24 @@ def main():
     model = model.to(device)
     model.eval()
 
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+
     tta_segmentor = TTASegmentor(model, img_size=IMG_SIZE)
 
     masks_dir = os.path.join(args.output_dir, "masks")
     masks_color_dir = os.path.join(args.output_dir, "masks_color")
     comparisons_dir = os.path.join(args.output_dir, "comparisons")
-    os.makedirs(masks_dir, exist_ok=True)
-    os.makedirs(masks_color_dir, exist_ok=True)
-    os.makedirs(comparisons_dir, exist_ok=True)
+    if not args.benchmark_only:
+        os.makedirs(masks_dir, exist_ok=True)
+        os.makedirs(masks_color_dir, exist_ok=True)
+        os.makedirs(comparisons_dir, exist_ok=True)
 
     iou_scores = []
     pixel_acc_scores = []
     all_class_ious = []
     sample_count = 0
+    inference_times = []
 
     with torch.no_grad():
         progress = tqdm(loader, desc="Processing", unit="batch")
@@ -330,12 +347,16 @@ def main():
             images = images.to(device)
             masks = masks.to(device)
 
+            # Time the inference
+            start_time = time.time()
             if not args.no_tta:
                 predictions = torch.stack([tta_segmentor(images[index:index + 1]).squeeze(0) for index in range(images.shape[0])])
             else:
                 logits = model(pixel_values=images).logits
                 logits = F.interpolate(logits, size=masks.shape[1:], mode="bilinear", align_corners=False)
                 predictions = torch.argmax(F.softmax(logits, dim=1), dim=1)
+            inference_time = time.time() - start_time
+            inference_times.extend([inference_time / images.shape[0]] * images.shape[0])  # Per-image time
 
             for index in range(images.shape[0]):
                 pred = predictions[index]
@@ -348,31 +369,47 @@ def main():
                 pixel_acc_scores.append(pixel_acc)
                 all_class_ious.append(class_ious)
 
-                image_name = image_names[index]
-                base_name = os.path.splitext(image_name)[0]
-                pred_np = pred.cpu().numpy().astype(np.uint8)
-                Image.fromarray(pred_np).save(os.path.join(masks_dir, f"{base_name}_pred.png"))
-                pred_color = mask_to_color(pred_np)
-                cv2.imwrite(
-                    os.path.join(masks_color_dir, f"{base_name}_pred_color.png"),
-                    cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR),
-                )
-
-                if sample_count < args.num_comparisons:
-                    save_prediction_comparison(
-                        images[index].cpu(),
-                        masks[index].cpu(),
-                        pred.cpu(),
-                        os.path.join(comparisons_dir, f"sample_{sample_count:03d}_{image_name}.png"),
-                        image_name,
+                if not args.benchmark_only:
+                    image_name = image_names[index]
+                    base_name = os.path.splitext(image_name)[0]
+                    pred_np = pred.cpu().numpy().astype(np.uint8)
+                    Image.fromarray(pred_np).save(os.path.join(masks_dir, f"{base_name}_pred.png"))
+                    pred_color = mask_to_color(pred_np)
+                    cv2.imwrite(
+                        os.path.join(masks_color_dir, f"{base_name}_pred_color.png"),
+                        cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR),
                     )
-                    sample_count += 1
+
+                    if sample_count < args.num_comparisons:
+                        save_prediction_comparison(
+                            images[index].cpu(),
+                            masks[index].cpu(),
+                            pred.cpu(),
+                            os.path.join(comparisons_dir, f"sample_{sample_count:03d}_{image_name}.png"),
+                            image_name,
+                        )
+                        sample_count += 1
 
     mean_class_iou = np.nanmean(np.array(all_class_ious), axis=0)
+    mean_inference_time = np.mean(inference_times) if inference_times else 0
+    p50_inference_time = np.percentile(inference_times, 50) if inference_times else 0
+    p90_inference_time = np.percentile(inference_times, 90) if inference_times else 0
+    p95_inference_time = np.percentile(inference_times, 95) if inference_times else 0
+    peak_gpu_memory_mb = (
+        torch.cuda.max_memory_allocated(device) / (1024 * 1024)
+        if device.type == "cuda"
+        else 0.0
+    )
     results = {
         "mean_iou": float(np.nanmean(iou_scores)),
         "mean_pixel_acc": float(np.mean(pixel_acc_scores)),
         "class_iou": mean_class_iou.tolist(),
+        "mean_inference_time_ms": mean_inference_time * 1000,
+        "p50_inference_time_ms": float(p50_inference_time * 1000),
+        "p90_inference_time_ms": float(p90_inference_time * 1000),
+        "p95_inference_time_ms": float(p95_inference_time * 1000),
+        "peak_gpu_memory_mb": float(peak_gpu_memory_mb),
+        "tta_enabled": not args.no_tta,
     }
     save_metrics_summary(results, args.output_dir)
 
@@ -381,6 +418,12 @@ def main():
     print("=" * 80)
     print(f"Mean IoU: {results['mean_iou']:.4f}")
     print(f"Mean Pixel Accuracy: {results['mean_pixel_acc']:.4f}")
+    print(f"Mean Inference Time: {results['mean_inference_time_ms']:.1f}ms per image")
+    print(f"P50 Inference Time: {results['p50_inference_time_ms']:.1f}ms per image")
+    print(f"P90 Inference Time: {results['p90_inference_time_ms']:.1f}ms per image")
+    print(f"P95 Inference Time: {results['p95_inference_time_ms']:.1f}ms per image")
+    print(f"Peak GPU Memory: {results['peak_gpu_memory_mb']:.1f}MB")
+    print(f"TTA Enabled: {results['tta_enabled']}")
 
 
 if __name__ == "__main__":

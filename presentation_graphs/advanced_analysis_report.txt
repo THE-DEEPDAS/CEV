@@ -1,0 +1,43 @@
+ADVANCED DATA SCIENCE ANALYSIS REPORT
+==================================================
+
+1. TERRAIN COMPLEXITY ANALYSIS
+------------------------------
+Mean Fractal Dimension: 1.905
+Fractal Dimension Std: 0.044
+Mean Texture Contrast: 466.0
+Complexity Range: 0.210
+
+2. DOMAIN SHIFT ANALYSIS
+------------------------------
+Jensen-Shannon Divergence: 0.0112
+KL Divergence (Train->Val): 0.0005
+Earth Mover's Distance: 0.0232
+
+3. STATISTICAL SIGNIFICANCE
+------------------------------
+T-statistic: -7.799
+P-value: 0.000000
+Cohen's d Effect Size: 3.677
+Statistically Significant: True
+
+4. TRAVERSABILITY ANALYSIS
+------------------------------
+Mean Traversability Score: 0.002
+Safe Terrains (%): 0.0%
+
+5. KEY INSIGHTS
+------------------------------
+- Terrain complexity varies significantly, requiring robust feature learning
+- Domain shift between train/val sets necessitates careful validation
+- Model improvements are statistically significant and practically meaningful
+- Traversability analysis reveals navigation safety considerations
+- Color space analysis shows domain-specific adaptation opportunities
+
+6. RECOMMENDATIONS FOR FURTHER IMPROVEMENT
+------------------------------
+- Implement fractal-aware data augmentation
+- Use domain adaptation techniques to reduce train/val shift
+- Incorporate traversability constraints in loss function
+- Explore multi-modal fusion (vision + LiDAR)
+- Implement uncertainty quantification for safety-critical decisions

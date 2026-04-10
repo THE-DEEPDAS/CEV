@@ -1,167 +1,254 @@
-# Final Submission Document
+# Duality AI Offroad Segmentation Challenge Submission
 
-## 1. Title & Summary
+This document is written to satisfy the hackathon requirements in hackathon_ps.txt and to be presentation-ready.
 
-**Purpose:** This is the final hackathon submission document for the offroad segmentation project.
+## 1. What This Submission Covers
 
-**What it does:**
-- trains a SegFormer-B2 model for offroad terrain segmentation
-- uses two-phase training and test-time augmentation
-- generates evaluation metrics and comparison visuals
+This repository addresses both tracks:
 
-**Final model checkpoint:** available from Kaggle at https://www.kaggle.com/models/deepdas07/offroad-segmentation
+- AI Engineering: training, inference, optimization, runtime measurement.
+- Documentation and Presentation: clear method, metrics, graphs, failure analysis, and conclusions.
 
-**Final approach & validation:** documented in `cevass.ipynb`, including three new final validation figures.
+## 2. Verified Current Results
 
----
+Source: predictions_no_tta/evaluation_metrics.txt
 
-## 2. Step-by-Step Instructions
+- Mean IoU: 0.2965
+- Mean Pixel Accuracy: 0.5638
+- Mean Inference Time: 7.7 ms per image
+- P50 Inference Time: 5.1 ms per image
+- P90 Inference Time: 6.4 ms per image
+- P95 Inference Time: 7.8 ms per image
+- Peak GPU Memory: 2078.7 MB
+- TTA Enabled: False
 
-### 2.1 Setup
-1. Open the project folder at `d:\CEV`.
-2. Create and activate a Python virtual environment.
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Validate the install:
-   ```bash
-   python setup_validation.py
-   ```
+Per-class IoU from the same file:
 
-### 2.2 Training
-1. Train phase 1:
-   ```bash
-   python train_segformer.py --phase 1
-   ```
-2. Train phase 2:
-   ```bash
-   python train_segformer.py --phase 2
-   ```
-3. Final checkpoint:
-   - `train_stats_segformer/best_model_phase2.pth`
-
-### 2.3 Final Validation & Figures
-The final validation approach is documented in `cevass.ipynb` and includes three new validation figures produced on held-out data.
-
-- Model design:
-  - Two-phase SegFormer-B2 training
-  - Class remapping for offroad terrain labels
-  - Strong augmentation for domain generalization
-  - Final test-time augmentation (TTA) for robust predictions
-
-- Validation process:
-  - Validate on the held-out `val/` dataset
-  - Record per-class IoU and pixel accuracy
-  - Compare input, ground truth, and prediction side-by-side
-
-![Validation comparison 1](predictions_tta/comparisons/sample_000_0000060.png.png)
-
-![Validation comparison 2](predictions_tta/comparisons/sample_001_0000061.png.png)
-
-![Per-class metrics](predictions_tta/per_class_metrics.png)
-
-### 2.4 Evaluation
-1. Download the final checkpoint from Kaggle and save it locally as `best_model.pt`.
-2. Run inference with TTA:
-   ```bash
-   python test_segformer.py --model_path best_model.pt
-   ```
-3. Review outputs in `predictions_tta/`.
-4. Main result files:
-   - `predictions_tta/evaluation_metrics.txt`
-   - `predictions_tta/per_class_metrics.png`
-   - `predictions_tta/comparisons/`
-
-### 2.5 Submission
-1. Use this README as the final document.
-2. Include the final checkpoint and `predictions_tta/`.
-3. Confirm exact reproduction with the commands above.
-4. Final validation analysis and three new validation figures are captured in `cevass.ipynb`.
-
----
-
-## 3. Diagrams & Visuals
-
-### 3.1 Pipeline Flow
-```
-Dataset → Augmentation → SegFormer-B2 Training → best_model_phase2.pth → TTA Inference → Predictions
-```
-
-### 3.2 Example Outputs
-These visuals come from `predictions_tta/comparisons/`.
-
-#### Example 1
-![Comparison sample 0](predictions_tta/comparisons/sample_000_0000060.png.png)
-
-#### Example 2
-![Comparison sample 1](predictions_tta/comparisons/sample_001_0000061.png.png)
-
-#### Example 3
-![Comparison sample 2](predictions_tta/comparisons/sample_002_0000062.png.png)
-
-### 3.3 Performance Chart
-![Per-Class Metrics](predictions_tta/per_class_metrics.png)
-
----
-
-## 4. Graphs & Charts
-
-### 4.1 Final Metrics
-From `predictions_tta/evaluation_metrics.txt`:
-- Mean IoU: **0.2880**
-- Pixel Accuracy: **0.5796**
-
-### 4.2 Per-Class IoU
-- Trees: 0.1755
-- Lush Bushes: 0.0011
-- Dry Grass: 0.4263
-- Dry Bushes: 0.1608
+- Trees: 0.2401
+- Lush Bushes: 0.0019
+- Dry Grass: 0.4399
+- Dry Bushes: 0.1499
 - Ground Clutter: 0.0000
 - Flowers: 0.0000
 - Logs: 0.0000
-- Rocks: 0.0301
-- Landscape: 0.5479
-- Sky: 0.9667
+- Rocks: 0.0303
+- Landscape: 0.5284
+- Sky: 0.9820
 
-### 4.3 Example Entry
-- Task: Model training on dataset
-- Initial IoU Score: 0.2758
-- Issue Faced: low recall for rare classes
-- Solution: stronger augmentation and TTA
+Important:
+- Any earlier values that do not match this file should be treated as outdated.
+- This README now uses only measured outputs from repository artifacts.
 
----
+## 3. Reproducibility Steps
 
-## 5. Documented Steps
+Environment setup:
 
-- Dataset mapping: raw masks are remapped to 9 classes.
-- Training: phase 1 freezes the backbone, phase 2 finetunes the whole model.
-- Evaluation: `test_segformer.py` creates prediction comparisons and metrics.
+    conda create -n EDU python=3.10 -y
+    conda activate EDU
+    pip install -r requirements.txt
 
----
+Generate analysis figures:
 
-## 6. Failure Cases and Solutions
+    python data_analysis.py
 
-### Failure 1: Rare class recall
-- Issue: Logs and Flowers are missing or weak.
-- Evidence: IoU values are 0 or N/A.
-- Fix: add rare-class examples and increase class weights.
+Run model evaluation and response-time measurement:
 
-### Failure 2: Confusing terrain types
-- Issue: Dry Bushes appear as Dry Grass.
-- Evidence: comparison images show mixed textures.
-- Fix: add more texture variety and occlusion augmentation.
+    python test_segformer.py --no_tta --output_dir predictions_no_tta
 
-### Before & After Examples
-- `predictions_tta/comparisons/sample_000_0000060.png.png`
-- `predictions_tta/comparisons/sample_001_0000061.png.png`
-- `predictions_tta/comparisons/sample_002_0000062.png.png`
+Outputs used in this report:
 
----
+- predictions_no_tta/evaluation_metrics.txt
+- predictions_no_tta/per_class_metrics.png
+- predictions_no_tta/comparisons/
+- presentation_graphs/
 
-## 7. Notes for Judges
+## 4. Technical Approach
 
-- This README is the single final submission document.
-- It includes exact results and visual proof from the current output.
-- The final model and outputs are ready for evaluation.
+### 4.1 Model
 
+- Backbone: SegFormer-B2
+- Task: semantic segmentation for offroad scenes
+- Classes: Trees, Lush Bushes, Dry Grass, Dry Bushes, Ground Clutter, Flowers, Logs, Rocks, Landscape, Sky
+
+### 4.2 Training Strategy
+
+- Two-stage fine-tuning workflow (head-focused then full-model tuning)
+- Augmentations for domain robustness in synthetic desert scenes
+- Class remapping and mask normalization to consistent class IDs
+
+### 4.3 Inference Strategy
+
+- Final measured inference path uses no-TTA for best overall tradeoff
+- Per-image output masks and comparison visualizations saved for auditability
+
+## 5. Data Science Analysis (Important Graphs Only)
+
+Figures generated by data_analysis.py are focused on decision-making value, not just volume.
+
+### 5.1 Class Distribution Analysis
+
+- Graph: presentation_graphs/class_distribution.png
+- Purpose: quantify class imbalance in train vs val.
+- Why useful: explains why frequent classes (for example Sky/Landscape) are easier than rare classes (for example Flowers/Ground Clutter).
+
+### 5.2 Resolution and Input Statistics
+
+- Graph: presentation_graphs/image_resolutions.png
+- Purpose: verify image size distribution and preprocessing consistency.
+- Why useful: prevents hidden train/val mismatch from resizing assumptions.
+
+### 5.3 Per-Class IoU Performance
+
+- Graph: presentation_graphs/per_class_iou.png
+- Source: predictions_no_tta/evaluation_metrics.txt
+- Why useful: identifies exactly where model is strong (Sky/Landscape) and weak (rare or fine-detail classes).
+
+### 5.4 Terrain Complexity and Texture
+
+- Graph: presentation_graphs/terrain_complexity.png
+- Method: fractal-dimension and texture features from image data.
+- Why useful: characterizes scene complexity and supports augmentation and model-capacity decisions.
+
+### 5.5 Color-Space Domain Analysis
+
+- Graph: presentation_graphs/color_spaces.png
+- Method: RGB/HSV/LAB channel distributions and correlations.
+- Why useful: validates whether color-driven shifts may affect generalization.
+
+### 5.6 Domain Shift Quantification
+
+- Graph: presentation_graphs/domain_shift.png
+- Method: Jensen-Shannon divergence, KL divergence, and EMD between train and val distributions.
+- Why useful: turns generalization risk into measurable quantities.
+
+### 5.7 Traversability Analysis (Domain-Specific)
+
+- Graph: presentation_graphs/traversability.png
+- Method: label-based obstacle composition and traversability scoring.
+- Why useful: connects segmentation quality to autonomous navigation relevance.
+
+### 5.8 Comparative Metrics Analysis
+
+- Graph: presentation_graphs/statistical_significance.png
+- Current behavior: uses measured comparison only when two runs exist.
+- Why useful: avoids synthetic claims and keeps comparison evidence-based.
+
+## 6. mIoU Explained Clearly
+
+Intersection over Union for one class is:
+
+IoU = intersection(prediction, ground truth) / union(prediction, ground truth)
+
+Mean IoU is the average IoU across all classes.
+
+Why mIoU is used here:
+
+- It is class-aware and penalizes both over- and under-segmentation.
+- It is better than plain pixel accuracy for imbalanced segmentation tasks.
+- It is the main judging metric for model performance in this challenge.
+
+Interpretation for this run:
+
+- Overall mIoU is 0.2965.
+- Very strong class performance on Sky.
+- Moderate performance on Dry Grass and Landscape.
+- Weak or missing performance for rare classes; this is visible in per-class IoU and comparison plots.
+
+## 7. Response Time and Efficiency
+
+Measured from predictions_no_tta/evaluation_metrics.txt:
+
+- Mean inference time: 7.7 ms per image.
+- p50/p90/p95 latency: 5.1 / 6.4 / 7.8 ms per image.
+- Peak GPU memory: 2078.7 MB.
+
+How to evaluate efficiency during presentation:
+
+- Show mIoU and inference time together (accuracy-speed tradeoff).
+- Emphasize stable low-latency no-TTA deployment behavior.
+- Use percentile latency and peak memory as deployment readiness evidence.
+
+## 8. What Was Done Beyond Minimum Requirements
+
+The brief asks for model performance and clear reporting. This submission also adds:
+
+- Quantified domain shift analysis.
+- Traversability-oriented analysis linked to autonomy use-case.
+- Fractal and color-space diagnostics for deeper model/data understanding.
+- Reproducible graph pipeline for judges to rerun quickly.
+
+These additions create an engineering edge by showing not just score reporting, but scientific diagnosis and deployment relevance.
+
+## 8A. Competitive Edge Metrics (Real Data Only)
+
+All values below are from repository artifacts or direct deterministic calculations from those artifacts.
+
+| Metric | Value | How Computed | Source |
+|---|---:|---|---|
+| Mean IoU | 0.2965 | Direct reported metric | predictions_no_tta/evaluation_metrics.txt |
+| Mean Pixel Accuracy | 0.5638 | Direct reported metric | predictions_no_tta/evaluation_metrics.txt |
+| Mean Inference Time | 7.7 ms/image | Direct reported metric | predictions_no_tta/evaluation_metrics.txt |
+| P50 / P90 / P95 Latency | 5.1 / 6.4 / 7.8 ms | Direct reported metrics | predictions_no_tta/evaluation_metrics.txt |
+| Peak GPU Memory | 2078.7 MB | Direct reported metric | predictions_no_tta/evaluation_metrics.txt |
+| Throughput | 129.87 images/sec | $1000 / 7.7$ | Derived from predictions_no_tta/evaluation_metrics.txt |
+| Final Checkpoint Size | 109,582,043 bytes (~104.51 MiB) | File size on disk | train_stats_segformer/best_model_phase2.pth |
+| Train Set Size | 2,857 images | Count of PNG files | Offroad_Segmentation_Training_Dataset/train/Color_Images |
+| Val Set Size | 317 images | Count of PNG files | Offroad_Segmentation_Training_Dataset/val/Color_Images |
+| Generated Prediction Masks | 1,002 | Count of output files | predictions_no_tta/masks |
+| Generated Comparison Panels | 10 | Count of output files | predictions_no_tta/comparisons |
+| End-to-End Inference Time (1,002 imgs) | 7.72 sec | $1002 \times 7.7 / 1000$ | Derived from output count + measured mean latency |
+
+### Runtime Deep-Dive (No-TTA Final)
+
+Final deployment profile:
+
+- Mean latency: 7.7 ms/image
+- p50/p90/p95: 5.1 / 6.4 / 7.8 ms/image
+- Peak GPU memory: 2078.7 MB
+- Throughput: 129.87 images/sec
+- Source: predictions_no_tta/evaluation_metrics.txt
+
+## 9. How To Present This (8-Slide Flow)
+
+Use this exact order for a strong technical narrative.
+
+1. Problem and objective
+- Challenge context, class list, and success criteria.
+
+2. Dataset and preprocessing
+- Show class distribution and resolution graphs.
+
+3. Model and training pipeline
+- SegFormer-B2, training strategy, augmentation, and no-TTA inference path.
+
+4. Core metrics
+- Present mIoU, pixel accuracy, and inference time from evaluation_metrics.txt.
+
+5. Per-class behavior
+- Show per-class IoU graph and explain strengths/weaknesses.
+
+6. Domain depth (extra work)
+- Show domain shift, color-space, and terrain complexity figures.
+
+7. Autonomous relevance
+- Show traversability analysis and why it matters for offroad safety.
+
+8. Limitations and next steps
+- Rare-class weakness and data balancing plans.
+
+## 10. Limitations (Transparent)
+
+- Current run is strongest on majority/easier classes.
+- Rare-class segmentation remains the largest gap.
+- Comparative significance requires at least one additional measured run file.
+
+## 11. Judge Checklist
+
+Before final submission, verify:
+
+- Model weights present: train_stats_segformer/best_model_phase2.pth
+- Metrics file present: predictions_no_tta/evaluation_metrics.txt
+- Key visuals present: predictions_no_tta/comparisons and presentation_graphs
+- README is consistent with measured values in artifacts
+
+This keeps the submission clear, reproducible, and aligned with judging expectations.
